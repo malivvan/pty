@@ -79,7 +79,13 @@ fmt: ## Format every Go source file.
 	gofmt -s -l -w .
 
 fmt-check: ## Fail when a Go source file is not formatted.
-	@unformatted="$$(gofmt -s -l .)"; \
+	@carriage_returns="$$(grep -l "$$(printf '\r')" *.go *.s 2>/dev/null || true)"; \
+	if [ -n "$$carriage_returns" ]; then \
+		echo "These files have carriage returns, but the sources use line feeds only; see .gitattributes:"; \
+		echo "$$carriage_returns"; \
+		exit 1; \
+	fi; \
+	unformatted="$$(gofmt -s -l .)"; \
 	if [ -n "$$unformatted" ]; then \
 		echo "These files need gofmt:"; \
 		echo "$$unformatted"; \

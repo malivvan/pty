@@ -1,0 +1,7 @@
+# The sources are stored and checked out with line feeds only, whatever the
+# system the working copy lives on.
+#
+# Git for Windows checks text files out with carriage returns by default, which
+# makes every Go file look unformatted to gofmt, and makes the formatting check
+# of the workflow fail on the one system that cannot be blamed for it.
+* text=auto eol=lf

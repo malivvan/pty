@@ -319,6 +319,10 @@ as the end of the terminal.
 
 ## Development
 
+The sources use line feeds only, which `.gitattributes` enforces: an editor
+that writes carriage returns into them makes `make fmt-check`, and the workflow,
+fail on every file.
+
 ```sh
 make            # build, vet and test on the host system
 make test-race  # run the tests with the race detector

@@ -36,6 +36,15 @@ jobs:
       - name: Check the formatting
         shell: bash
         run: |
+          # A file that a working copy checked out with carriage returns makes
+          # gofmt report it, and every other file of the repository with it.
+          carriage_returns="$(grep -l "$(printf '\r')" *.go *.s 2>/dev/null || true)"
+          if [ -n "$carriage_returns" ]; then
+            echo "::error::These files have carriage returns, but the sources use line feeds only; see .gitattributes"
+            echo "$carriage_returns"
+            exit 1
+          fi
+
           unformatted="$(gofmt -s -l .)"
           if [ -n "$unformatted" ]; then
             echo "::error::These files need gofmt: $unformatted"
