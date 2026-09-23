@@ -3,6 +3,7 @@ package pty
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"syscall"
@@ -69,10 +70,15 @@ type Cmd struct {
 	started bool
 	waited  bool
 
-	ctx        context.Context
-	ctxErr     error
-	stopCancel func() bool
-	wait       func() (*os.ProcessState, error)
+	ctx    context.Context
+	ctxErr error
+
+	// cancelResult receives what stopping the command returned, once the
+	// context is done, and stopCancel disarms the cancellation.
+	cancelResult chan error
+	stopCancel   func() bool
+
+	wait func() (*os.ProcessState, error)
 }
 
 // newCmd returns a command that runs on term.
@@ -133,9 +139,12 @@ func (c *Cmd) Start() error {
 	}
 	if c.ctx != nil {
 		// The handler runs in its own goroutine, so the function it calls is
-		// the one that was in place when the command started.
+		// the one that was in place when the command started. Its result is
+		// what tells a wait whether the command was stopped or was already
+		// finished, and the channel holds it without blocking the handler.
 		cancel := c.Cancel
-		c.stopCancel = context.AfterFunc(c.ctx, func() { _ = cancel() })
+		c.cancelResult = make(chan error, 1)
+		c.stopCancel = context.AfterFunc(c.ctx, func() { c.cancelResult <- cancel() })
 	}
 	return nil
 }
@@ -143,6 +152,12 @@ func (c *Cmd) Start() error {
 // Wait waits for the command to exit and releases what the terminal held for
 // it. It returns an error when the command has not been started, or has already
 // been waited for.
+//
+// A command whose context is done while it is being waited for is stopped, and
+// reports the error of the context, so that errors.Is(err, context.Canceled)
+// holds on every system, whether the process ends with a signal or with an exit
+// code. A command that had already finished when it was stopped is not blamed
+// on the context, and a command that could not be stopped reports that failure.
 func (c *Cmd) Wait() error {
 	c.mu.Lock()
 	switch {
@@ -160,19 +175,48 @@ func (c *Cmd) Wait() error {
 	c.stopCancel = nil
 	c.mu.Unlock()
 
-	// Waiting makes the cancellation of the context pointless.
+	state, err := c.wait()
+	c.ProcessState = state
+
+	// The cancellation stays armed until here: stopping a command from another
+	// goroutine while waiting for it is what a command with a context is for.
+	// Disarming it waits for a cancellation that is already under way, so that
+	// what it did is known below.
 	if stopCancel != nil {
 		stopCancel()
 	}
 
-	state, err := c.wait()
-	c.ProcessState = state
-	if err != nil && c.ctx != nil && c.ctx.Err() != nil {
-		// A command that was cancelled reports the cancellation, as
-		// os/exec.Cmd does.
-		return c.ctx.Err()
+	stopped, stopErr := c.stopped()
+	switch {
+	case !stopped:
+		// The context was not done: the command stands on its own.
+	case errors.Is(stopErr, os.ErrProcessDone):
+		// The process had already finished when it was stopped.
+	case stopErr != nil:
+		return errors.Join(err, fmt.Errorf("pty: stopping the command: %w", stopErr))
+	default:
+		// The command was stopped, so whatever it did from then on is the work
+		// of the context, also when the process reports no failure of its own.
+		if ctxErr := c.ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 	}
 	return err
+}
+
+// stopped reports whether the context of the command was done before it was
+// waited for, and what stopping the command returned. It has to be called after
+// the wait, once the cancellation can no longer be under way.
+func (c *Cmd) stopped() (bool, error) {
+	if c.ctx == nil {
+		return false, nil
+	}
+	select {
+	case err := <-c.cancelResult:
+		return true, err
+	default:
+		return false, nil
+	}
 }
 
 // Run starts the command and waits for it to exit.
