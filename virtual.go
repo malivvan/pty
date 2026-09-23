@@ -31,8 +31,9 @@ const virtualQueueLimit = 64 << 10
 // the input written with Write is echoed back, it only reaches the hosted
 // program one complete line at a time, the erase and end-of-file characters are
 // processed, and the line feeds the program writes are expanded to carriage
-// return plus line feed on the way back. [VirtualPTY.SetRaw] turns all of that
-// off.
+// return plus line feed on the way back, so a program that writes a carriage
+// return of its own, as Windows programs do, gets two of them. Each of those is
+// what a terminal does; [VirtualPTY.SetRaw] turns all of it off.
 //
 // Like a real terminal, it holds a bounded amount of data: a program that
 // writes more than the terminal can hold waits until the terminal is read, and

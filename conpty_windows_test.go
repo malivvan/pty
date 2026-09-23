@@ -48,9 +48,14 @@ func TestConPTYSpawn(t *testing.T) {
 	master.expect("hello")
 
 	// Wait for the command to be done, which also proves the pseudo-console
-	// made it start at all.
-	if _, err := windows.WaitForSingleObject(windows.Handle(handle), 10000); err != nil {
+	// made it start at all. A wait that times out is not an error, so the
+	// result of the wait is what is checked here.
+	event, err := windows.WaitForSingleObject(windows.Handle(handle), 10000)
+	if err != nil {
 		t.Errorf("Unexpected error waiting for the process: %s.", err)
+	}
+	if event != windows.WAIT_OBJECT_0 {
+		t.Errorf("The process did not finish: wait returned %d.", event)
 	}
 }
 

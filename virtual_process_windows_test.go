@@ -20,7 +20,11 @@ func TestVirtualPTYCommand(t *testing.T) {
 	cmd := vt.Command("cmd.exe", "/c", "echo through the terminal")
 	noError(t, cmd.Start(), "Unexpected error from Start")
 
-	master.expect("through the terminal\r\n")
+	// cmd.exe writes a carriage return and a line feed of its own, and the
+	// terminal turns the line feed into a carriage return and a line feed, the
+	// way a terminal with output processing does. The second carriage return
+	// is what a program that writes its own line endings gets.
+	master.expect("through the terminal\r\r\n")
 	noError(t, cmd.Wait(), "Unexpected error from Wait")
 	if cmd.ProcessState == nil {
 		t.Error("Wait should have filled in the state of the process.")

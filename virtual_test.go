@@ -330,6 +330,23 @@ func TestVirtualPTYOutput(t *testing.T) {
 	master.expect("one\r\ntwo\r\n")
 }
 
+// TestVirtualPTYOutputWithCarriageReturn checks that a program that writes its
+// own line endings gets them expanded, as it would on a terminal: every line
+// feed becomes a carriage return and a line feed, whatever came before it.
+func TestVirtualPTYOutputWithCarriageReturn(t *testing.T) {
+	t.Parallel()
+
+	vt := newVirtualPTY(t, 80, 24)
+	master := newTerminalReader(t, vt)
+
+	// What a Windows program writes when it prints a line.
+	if _, err := vt.Slave().Write([]byte("windows program\r\n")); err != nil {
+		t.Fatalf("Unexpected error from Write: %s.", err)
+	}
+
+	master.expect("windows program\r\r\n")
+}
+
 // TestVirtualPTYRaw checks that raw mode hands input and output over without
 // any processing.
 func TestVirtualPTYRaw(t *testing.T) {
