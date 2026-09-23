@@ -40,6 +40,12 @@ type ConPTY struct {
 
 	attrList *windows.ProcThreadAttributeListContainer
 
+	// mu guards the two fields below: Spawn holds it while it hands the
+	// attribute list to the system, so that Close cannot release it in the
+	// middle of a call.
+	mu     sync.Mutex
+	closed bool
+
 	sizeMu sync.Mutex
 	size   windows.Coord
 
@@ -187,6 +193,11 @@ func (c *ConPTY) Fd() uintptr {
 // more than once is safe and returns the result of the first call.
 func (c *ConPTY) Close() error {
 	c.closeOnce.Do(func() {
+		c.mu.Lock()
+		c.closed = true
+		attrList := c.attrList
+		c.mu.Unlock()
+
 		// The slave ends belong to the pseudo-console and are closed by it;
 		// closing them here first is what makes the hosted processes see
 		// end-of-file and the console exit.
@@ -195,9 +206,8 @@ func (c *ConPTY) Close() error {
 			windows.CloseHandle(c.outPipeWrite),
 		)
 
-		if c.attrList != nil {
-			c.attrList.Delete()
-			c.attrList = nil
+		if attrList != nil {
+			attrList.Delete()
 		}
 		windows.ClosePseudoConsole(*c.pseudoConsole)
 
@@ -288,14 +298,18 @@ func (c *ConPTY) Size() (width, height int, err error) {
 // overrides it. attr may be nil, which means: the current directory, the
 // environment of the current process, and no special creation flags.
 func (c *ConPTY) Spawn(name string, args []string, attr *syscall.ProcAttr) (pid int, handle uintptr, err error) {
-	if attr == nil {
-		attr = &syscall.ProcAttr{}
+	// The attribute list carries the pseudo-console handle into the new
+	// process, so it has to stay valid for the whole call: Close waits here
+	// until the process has been started.
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed {
+		return 0, 0, errors.New("pty: the pseudo-console is closed")
 	}
 
-	// A closed pseudo-console cannot host any more processes, and its process
-	// attribute list is gone with it.
-	if c.attrList == nil {
-		return 0, 0, errors.New("pty: the pseudo-console is closed")
+	if attr == nil {
+		attr = &syscall.ProcAttr{}
 	}
 
 	appName, err := lookExtensions(name, attr.Dir)

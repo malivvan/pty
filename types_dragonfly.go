@@ -1,7 +1,7 @@
 //go:build ignore
 
 // This file describes the DragonFly BSD ABI types this package needs in a form
-// that cgo can translate. It is never part of a build; run mktypes.bash on a
+// that cgo can translate. It is never part of a build; run 'make generate' on a
 // DragonFly BSD system to regenerate ztypes_dragonfly_amd64.go from it.
 
 package pty

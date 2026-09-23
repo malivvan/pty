@@ -13,10 +13,9 @@ import (
 	"time"
 )
 
-const (
-	errMarker   byte = 0xEE
-	testTimeout      = time.Second
-)
+// errMarker is written to the slave end of a pseudo-terminal to unblock a read
+// on its master end.
+const errMarker byte = 0xEE
 
 // fdLock serialises the tests below: they make the file descriptor of the
 // master end blocking again through (*os.File).Fd(), which races with the
@@ -28,8 +27,6 @@ var fdLock sync.Mutex
 
 // TestReadDeadline checks that a deadline interrupts an outstanding Read on the
 // master end.
-//
-// https://github.com/malivvan/pty/issues/162
 //
 //nolint:paralleltest // See fdLock.
 func TestReadDeadline(t *testing.T) {
@@ -59,9 +56,6 @@ func TestReadDeadline(t *testing.T) {
 
 // TestReadClose checks that closing the master end interrupts an outstanding
 // Read on it.
-//
-// https://github.com/malivvan/pty/issues/114
-// https://github.com/malivvan/pty/issues/88
 //
 //nolint:paralleltest // See fdLock.
 func TestReadClose(t *testing.T) {
@@ -96,11 +90,11 @@ func prepare(t *testing.T) (ptmx *os.File, done func()) {
 	t.Helper()
 
 	if runtime.GOOS == "darwin" {
-		t.Log("This package uses blocking i/o on darwin intentionally:")
-		t.Log("> https://github.com/malivvan/pty/issues/52")
-		t.Log("> https://github.com/malivvan/pty/pull/53")
-		t.Log("> https://github.com/golang/go/issues/22099")
-		t.SkipNow()
+		// Darwin does not report the pty master as pollable and never
+		// interrupts an outstanding read, so this package keeps its file
+		// descriptors in blocking mode there. The tests below are about the
+		// non-blocking behaviour, which makes them meaningless on Darwin.
+		t.Skip("Darwin uses blocking i/o for pseudo-terminals.")
 	}
 
 	// (*os.File).Fd() is documented as racy, so these two tests never run in

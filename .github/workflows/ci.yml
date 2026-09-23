@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Show the toolchain
+        run: go version && go env GOOS GOARCH CGO_ENABLED
+
+      - name: Check the formatting
+        shell: bash
+        run: |
+          unformatted="$(gofmt -s -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files need gofmt: $unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # The whole test suite of the platform: real pseudo-terminals and ConPTY
+      # where they exist, the virtual terminal everywhere.
+      - name: Test
+        run: go test -count=1 -v ./...
+
+      - name: Test in a random order
+        run: go test -count=1 -shuffle=on ./...
+
+      # The race detector needs cgo, which needs a C compiler.
+      - name: Test with the race detector (needs a C compiler)
+        shell: bash
+        run: |
+          if command -v gcc >/dev/null 2>&1; then
+            go test -race -count=1 ./...
+          else
+            echo "::warning::No C compiler to build the race detector with, skipping it."
+          fi
+
+      - name: Test with coverage
+        if: runner.os == 'Linux'
+        run: go test -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Add the coverage to the summary
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          {
+            echo "## Coverage"
+            echo
+            echo '```'
+            go tool cover -func=coverage.out
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the coverage profile
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  cross:
+    name: Cross compile and type-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      - name: Compile for every supported system
+        run: make cross
+
+      # vet compiles the tests as well, so this type-checks the files that only
+      # one system builds.
+      - name: Type-check the tests of every supported system
+        run: make cross-vet
+
+  wasm:
+    name: Test on WebAssembly
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          check-latest: true
+          cache: true
+
+      # Node runs the js/wasm test binary; it is part of the runner image.
+      - name: Test on js/wasm
+        shell: bash
+        run: |
+          export PATH="$PATH:$(go env GOROOT)/lib/wasm"
+          GOOS=js GOARCH=wasm go test -count=1 -v ./...
+
+      - name: Install wasmtime
+        shell: bash
+        run: |
+          curl -sSf https://wasmtime.dev/install.sh | bash
+          echo "$HOME/.wasmtime/bin" >> "$GITHUB_PATH"
+
+      - name: Test on wasip1/wasm
+        shell: bash
+        run: |
+          export PATH="$PATH:$(go env GOROOT)/lib/wasm"
+          GOOS=wasip1 GOARCH=wasm go test -count=1 -v ./...

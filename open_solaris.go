@@ -12,9 +12,9 @@ import (
 
 // open allocates a pseudo-terminal pair.
 //
-// This is the Solaris flavour of the /dev/ptmx flow, based on the reference
-// implementation of the C library:
-// https://src.illumos.org/source/xref/illumos-gate/usr/src/lib/libc/port/gen/pt.c
+// This is the Solaris flavour of the /dev/ptmx flow: the slave device is
+// unlocked and its owner handed to the caller with STREAMS ioctls, and the
+// terminal driver modules are pushed onto it before it is handed back.
 func open() (ptmx, tty *os.File, err error) {
 	fd, err := syscall.Open("/dev/ptmx", syscall.O_RDWR|syscall.O_NOCTTY, 0)
 	if err != nil {
@@ -158,9 +158,8 @@ func streamsPush(file *os.File, mod string) error {
 
 	// I_FIND fails when mod is already pushed, which is exactly the case in
 	// which the module must not be pushed a second time. The ioctl is not
-	// entirely reliable on every Solaris version (it can report an error even
-	// when the module is present, see
-	// https://www.illumos.org/issues/9042), so only a successful I_FIND is
+	// entirely reliable on every Solaris version, since it can report an error
+	// for a module that is in fact present, so only a successful I_FIND is
 	// followed by an I_PUSH here.
 	if err := ioctl(file, I_FIND, uintptr(unsafe.Pointer(&buf[0]))); err != nil { //nolint:gosec // The pointer must be handed to the kernel as-is.
 		return nil

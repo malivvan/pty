@@ -1,5 +1,3 @@
-//go:build darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris || zos
-
 package pty
 
 import (
@@ -7,7 +5,14 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 )
+
+// testTimeout bounds every operation a test waits for, so that a test that
+// would block forever fails instead. It is generous on purpose: the runs under
+// the race detector and on the WebAssembly targets are slow, and this is a
+// watchdog, not a measured deadline.
+const testTimeout = 2 * time.Second
 
 // openClose opens a pseudo-terminal pair and arranges for both ends to be
 // closed when the test ends.
@@ -67,4 +72,29 @@ func readN(t *testing.T, r io.Reader, n int, msg string) []byte {
 	_, err := io.ReadFull(r, buf)
 	noError(t, err, msg)
 	return buf
+}
+
+// readWithTimeout reads from r once, failing the test when the read does not
+// return within testTimeout.
+func readWithTimeout(t *testing.T, r io.Reader, buf []byte) (int, error) {
+	t.Helper()
+
+	type result struct {
+		n   int
+		err error
+	}
+	done := make(chan result, 1)
+
+	go func() {
+		n, err := r.Read(buf)
+		done <- result{n: n, err: err}
+	}()
+
+	select {
+	case res := <-done:
+		return res.n, res.err
+	case <-time.After(testTimeout):
+		t.Fatalf("Read did not return within %s.", testTimeout)
+		return 0, nil
+	}
 }

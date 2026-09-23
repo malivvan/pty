@@ -3,6 +3,7 @@
 package pty
 
 import (
+	"errors"
 	"os"
 	"syscall"
 	"unsafe"
@@ -26,6 +27,20 @@ func open() (ptmx, tty *os.File, err error) {
 	var arg ptmget
 	if err := ioctl(ptm, uintptr(ioctl_PTMGET), uintptr(unsafe.Pointer(&arg))); err != nil { //nolint:gosec // The pointer must be handed to the kernel as-is.
 		return nil, nil, err
+	}
+
+	// os.NewFile returns no file at all for a file descriptor that is not
+	// valid, and the other end of the pair would be leaked, so both ends are
+	// checked before either of them is wrapped.
+	if arg.Cfd < 0 {
+		if arg.Sfd >= 0 {
+			_ = syscall.Close(int(arg.Sfd))
+		}
+		return nil, nil, errors.New("pty: PTMGET returned an invalid master file descriptor")
+	}
+	if arg.Sfd < 0 {
+		_ = syscall.Close(int(arg.Cfd))
+		return nil, nil, errors.New("pty: PTMGET returned an invalid slave file descriptor")
 	}
 
 	ptmx = os.NewFile(uintptr(arg.Cfd), cString(arg.Cn[:]))

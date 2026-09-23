@@ -58,6 +58,10 @@ func (*ConPTY) OutPipeReadFd() uintptr { return 0 }
 // OutPipeWriteFd always returns 0.
 func (*ConPTY) OutPipeWriteFd() uintptr { return 0 }
 
+// startCommand always fails with [ErrUnsupported]: there is no pseudo-console
+// to host a process on these systems.
+func (*ConPTY) startCommand(*Cmd) error { return ErrUnsupported }
+
 // Spawn always fails with [ErrUnsupported].
 func (*ConPTY) Spawn(name string, args []string, attr *syscall.ProcAttr) (pid int, handle uintptr, err error) {
 	return 0, 0, ErrUnsupported
